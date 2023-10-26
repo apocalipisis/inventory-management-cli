@@ -14,9 +14,11 @@ while (!endCLI)
 
     Console.WriteLine("O que deseja fazer (digite esc para sair)?");
     Console.WriteLine("1 - Cadastrar produto");
-    Console.WriteLine("2 - Vizualizar produtos");
+    Console.WriteLine("2 - Deletar produto");
     Console.WriteLine("3 - Atualizar estoque");
-    Console.WriteLine("4 - Exibir produtos com baixo estoque\n");
+    Console.WriteLine("4 - Vizualizar produtos");
+    Console.WriteLine("5 - Exibir produtos com baixo estoque");
+    Console.WriteLine("");
 
     int option = 0;
     bool advance = false;
@@ -30,7 +32,7 @@ while (!endCLI)
         try
         {
             option = Convert.ToInt32(input);
-            if (option < 1 || option > 4) Console.WriteLine("**** Digite uma opção válida ****");
+            if (option < 1 || option > 5) Console.WriteLine("**** Digite uma opção válida ****");
             else advance = true;
         }
         catch (Exception)
@@ -76,18 +78,13 @@ while (!endCLI)
                 Console.WriteLine("**** Digite uma opção válida ****");
             }
         }
-        
         advance = false;
         product.StockQuantity = quantity;
-
-        Console.Write("Digite o preço do produto: ");
-        input = Console.ReadLine();
-        if (CLIHelper.IsInputEsc(input)) break;
 
         decimal price = 0;
         while (!advance)
         {
-            Console.Write("Digite a quantidade do produto: ");
+            Console.Write("Digite o preço do produto: ");
             input = Console.ReadLine();
 
             if (CLIHelper.IsInputEsc(input)) break;
@@ -102,47 +99,66 @@ while (!endCLI)
                 Console.WriteLine("**** Digite uma opção válida ****");
             }
         }
-
         advance = false;
-        product.Price = Convert.ToDecimal(input);
+        product.Price = price;
 
-        db.Add(product);
-        db.SaveChanges();
-
-        var produto = await db.Products
-            .AsNoTracking()
-            .Where(x => x.Name == product.Name)
-            .FirstAsync();
-
-        Console.WriteLine(produto.Name);
+        try
+        {
+            db.Add(product);
+            db.SaveChanges();
+            Console.WriteLine("Produto adicionado com sucesso!");
+        }
+        catch (Exception)
+        {
+            Console.WriteLine("Erro ao adicionar produto!");
+        }
     }
     else if (option == 2)
     {
-        var products = await db.Products
-            .AsNoTracking()
-            .ToArrayAsync();
-
-        CLIHelper.DisplayProducts(products);
-    }
-    else if (option == 3)
-    {
+        /* Deleta um produto*/
         var products = await db.Products
            .AsNoTracking()
            .ToArrayAsync();
 
         CLIHelper.DisplayProducts(products);
-        Console.Write("Selecione um produto: ");
-        input = Console.ReadLine();
-        if (CLIHelper.IsInputEsc(input)) break;
 
-        var product = products.Where(x => x.Id == Convert.ToInt32(input)).First();
+        var product = CLIHelper.GetProduct(products);
 
-        Console.WriteLine($"Há {product.StockQuantity} prdutos no estoque");
-       
+        Console.WriteLine($"\nVocê selecionou o produto: {product.Name}");
+        bool confirmar = CLIHelper.IsContinue("Deseja deletar o produto");
+
+        if (confirmar)
+        {
+            try
+            {
+                db.Remove(product);
+                db.SaveChanges();
+                Console.WriteLine("Produto deletado com sucesso!");
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Erro ao deletar produto!");
+            }
+        }
+    }
+    else if (option == 3)
+    {
+        /* Atualiza a quantidade de produtos em estoque
+           a partir da quantidade de produtos vendidos*/
+
+        var products = await db.Products
+           .AsNoTracking()
+           .ToArrayAsync();
+
+        CLIHelper.DisplayProducts(products);
+
+        int IdSelected = 0;
+        var product = CLIHelper.GetProduct(products);
+
         int quantitySold = 0;
         while (!advance)
         {
-            Console.Write("Quantos produtos foram vendidos? ");
+            Console.Write("\nQuantos produtos foram vendidos? ");
             input = Console.ReadLine();
             if (CLIHelper.IsInputEsc(input)) break;
 
@@ -160,12 +176,33 @@ while (!endCLI)
         advance = false;
         product.StockQuantity -= quantitySold;
 
-        db.Update(product);
-        db.SaveChanges();
+        try
+        {
+            db.Update(product);
+            db.SaveChanges();
+            Console.WriteLine("Produto atualizado!");
+        }
+        catch (Exception)
+        {
+            Console.WriteLine("Erro ao atualizar produto!");
+        }
+
 
     }
     else if (option == 4)
     {
+        /* Mostra todos os produtos */
+        var products = await db.Products
+            .AsNoTracking()
+            .ToArrayAsync();
+
+        CLIHelper.DisplayProducts(products);
+    }
+    else if (option == 5)
+    {
+        /* Mostra todos os produtos
+           que tem menos de 10 unidades
+           em estoque*/
         var products = await db.Products
             .AsNoTracking()
             .Where(x => x.StockQuantity < 10)
@@ -175,19 +212,10 @@ while (!endCLI)
     }
 
     Console.WriteLine("\n");
-    bool IsContinue = false;
-    while (!IsContinue)
-    {
-        Console.Write("Deseja fazer mais alguma coisa (s/N)? ");
-        input = Console.ReadLine();
-        if (input is null || input.Length > 1)
-            Console.WriteLine("Entrada inválida! Por favor, insira apenas 'y' ou 'n'.");
-        else
-            IsContinue = true;
-    }
+    bool IsContinue = CLIHelper.IsContinue("Deseja continuar no programa");
 
     Console.Clear();
-    if (input.Equals("n", StringComparison.OrdinalIgnoreCase)) endCLI = true;
+    if (!IsContinue) endCLI = true;
 }
 
 public static class CLIHelper
@@ -203,6 +231,7 @@ public static class CLIHelper
     {
         Console.WriteLine($"\t Nome | Categoria | Quantidade | Preço");
         Console.WriteLine($"********************************************");
+        Console.WriteLine($"--------------------------------------------");
         foreach (var product in products)
         {
             Console.WriteLine($"{product.Id} \t {product.Name} | {product.Category} | {product.StockQuantity} | {product.Price}");
@@ -210,4 +239,53 @@ public static class CLIHelper
         }
     }
 
+    public static Product GetProduct(Product[] products)
+    {
+        int IdSelected = 0;
+        bool advance = false;
+        string input = "";
+        while (!advance)
+        {
+            Console.Write("Selecione um produto: ");
+            input = Console.ReadLine();
+
+            if (IsInputEsc(input)) break;
+
+            try
+            {
+                IdSelected = Convert.ToInt32(input);
+                if (products.Select(x => x.Id).Contains(IdSelected))
+                    advance = true;
+                else
+                    Console.WriteLine("**** Digite uma opção válida ****");
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("**** Digite uma opção válida ****");
+            }
+        }
+
+        return products.Where(x => x.Id == Convert.ToInt32(input)).First();
+    }
+
+    public static bool IsContinue(string consoleMessage)
+    {
+        bool IsContinue = false;
+        bool stopLoop = false;
+        while (!stopLoop)
+        {
+            Console.Write($"{consoleMessage} (S/N)? ");
+            var input = Console.ReadLine();
+            if (input.Equals("S", StringComparison.OrdinalIgnoreCase) || input.Equals("N", StringComparison.OrdinalIgnoreCase))
+            {
+                if (input.Equals("S", StringComparison.OrdinalIgnoreCase)) IsContinue = true;
+                else IsContinue = false;
+                stopLoop = true;
+            }
+            else
+                Console.WriteLine("Entrada inválida! Por favor, insira apenas 'S' ou 'N'.");
+        }
+
+        return IsContinue;
+    }
 }
